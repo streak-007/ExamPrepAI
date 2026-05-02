@@ -18,4 +18,10 @@ interface ExamPrepDao {
 
     @Upsert
     fun upsertProgressStats(entity: ProgressStatsEntity)
+
+    @Query("SELECT * FROM quiz_history ORDER BY completedAt DESC LIMIT :limit")
+    fun getRecentQuizHistory(limit: Int): List<QuizHistoryEntity>
+
+    @Upsert
+    fun upsertQuizHistory(entity: QuizHistoryEntity)
 }

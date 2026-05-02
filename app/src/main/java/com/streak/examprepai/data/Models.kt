@@ -48,6 +48,23 @@ data class ProgressStats(
         get() = if (attempted == 0) 0 else ((correct * 100f) / attempted).toInt()
 }
 
+data class QuizHistoryItem(
+    val id: Long = 0L,
+    val setId: String,
+    val setTitle: String,
+    val mode: QuizMode,
+    val attempted: Int,
+    val correct: Int,
+    val wrong: Int,
+    val skipped: Int,
+    val markedForReview: Int,
+    val totalQuestions: Int,
+    val score: Int,
+    val accuracy: Int,
+    val timeTakenSeconds: Int,
+    val completedAt: Long
+)
+
 enum class QuizMode {
     PRACTICE,
     EXAM,
@@ -111,11 +128,20 @@ data class QuizSession(
     val answeredCount: Int
         get() = questionProgress.values.count { it.isAnswered }
 
+    val answeredOnlyCount: Int
+        get() = questionProgress.values.count { it.paletteState == PaletteState.ANSWERED }
+
+    val answeredAndMarkedCount: Int
+        get() = questionProgress.values.count { it.paletteState == PaletteState.ANSWERED_AND_MARKED }
+
     val bookmarkedCount: Int
         get() = questionProgress.values.count { it.isBookmarked }
 
     val markedCount: Int
         get() = questionProgress.values.count { it.isMarkedForReview }
+
+    val markedOnlyCount: Int
+        get() = questionProgress.values.count { it.paletteState == PaletteState.MARKED }
 
     val correctCount: Int
         get() = set.questions.count { question ->
@@ -130,6 +156,9 @@ data class QuizSession(
 
     val skippedCount: Int
         get() = questionProgress.values.count { it.isVisited && !it.isAnswered }
+
+    val notAnsweredCount: Int
+        get() = questionProgress.values.count { it.paletteState == PaletteState.NOT_ANSWERED }
 
     val notVisitedCount: Int
         get() = set.questions.count { question ->

@@ -3,6 +3,7 @@ package com.streak.examprepai.data
 import android.content.Context
 import com.streak.examprepai.data.local.ExamPrepDatabase
 import com.streak.examprepai.data.local.ProgressStatsEntity
+import com.streak.examprepai.data.local.QuizHistoryEntity
 import com.streak.examprepai.data.local.UserPreferencesEntity
 
 class ExamPrepRepository(context: Context) {
@@ -45,5 +46,13 @@ class ExamPrepRepository(context: Context) {
             wrong = current.wrong + wrong
         )
         dao.upsertProgressStats(ProgressStatsEntity.fromDomain(updated))
+    }
+
+    fun getRecentQuizHistory(limit: Int = 5): List<QuizHistoryItem> {
+        return dao.getRecentQuizHistory(limit).map { it.toDomain() }
+    }
+
+    fun saveQuizHistory(item: QuizHistoryItem) {
+        dao.upsertQuizHistory(QuizHistoryEntity.fromDomain(item))
     }
 }

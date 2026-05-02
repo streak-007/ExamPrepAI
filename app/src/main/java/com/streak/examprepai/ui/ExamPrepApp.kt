@@ -61,6 +61,7 @@ import androidx.navigation.compose.rememberNavController
 import com.streak.examprepai.data.Exam
 import com.streak.examprepai.data.PaletteState
 import com.streak.examprepai.data.ProgressStats
+import com.streak.examprepai.data.QuizHistoryItem
 import com.streak.examprepai.data.QuestionReviewItem
 import com.streak.examprepai.data.QuestionSet
 import com.streak.examprepai.data.QuizMode
@@ -134,6 +135,7 @@ fun ExamPrepApp(viewModel: ExamPrepViewModel) {
                     examName = state.preferences.examName,
                     subjects = state.preferences.subjectNames,
                     progress = state.progress,
+                    recentHistory = state.recentHistory,
                     questionSets = state.availableSets,
                     onStartQuiz = { set, mode ->
                         viewModel.startQuiz(set, mode)
@@ -282,6 +284,7 @@ private fun DashboardScreen(
     examName: String,
     subjects: List<String>,
     progress: ProgressStats,
+    recentHistory: List<QuizHistoryItem>,
     questionSets: List<QuestionSet>,
     onStartQuiz: (QuestionSet, QuizMode) -> Unit
 ) {
@@ -305,6 +308,7 @@ private fun DashboardScreen(
                 )
             }
             item { ProgressSection(progress = progress) }
+            item { RecentHistorySection(history = recentHistory) }
             item { SectionTitle("Question sets") }
             if (questionSets.isEmpty()) {
                 item {
@@ -320,6 +324,23 @@ private fun DashboardScreen(
                         onStartQuiz = onStartQuiz
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentHistorySection(history: List<QuizHistoryItem>) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionTitle("Recent activity")
+        if (history.isEmpty()) {
+            EmptyStateCard(
+                title = "No sessions completed yet",
+                description = "Finish a practice or exam session and your recent results will show up here."
+            )
+        } else {
+            history.forEach { item ->
+                RecentHistoryCard(item = item)
             }
         }
     }
@@ -703,12 +724,13 @@ private fun PaletteCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 PaletteLegend("Answered", PaletteState.ANSWERED)
+                PaletteLegend("Answered + Marked", PaletteState.ANSWERED_AND_MARKED)
                 PaletteLegend("Not Answered", PaletteState.NOT_ANSWERED)
                 PaletteLegend("Marked", PaletteState.MARKED)
                 PaletteLegend("Not Visited", PaletteState.NOT_VISITED)
             }
             Text(
-                "Answered: ${session.answeredCount} | Not Answered: ${session.skippedCount} | Marked: ${session.markedCount} | Not Visited: ${session.notVisitedCount}",
+                "Answered: ${session.answeredOnlyCount} | Answered + Marked: ${session.answeredAndMarkedCount} | Not Answered: ${session.notAnsweredCount} | Marked: ${session.markedOnlyCount} | Not Visited: ${session.notVisitedCount}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -858,46 +880,62 @@ private fun SummaryScreen(
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard("Total", summary.totalQuestions.toString(), Modifier.weight(1f))
+                    StatCard(
+                        label = "Total",
+                        value = summary.totalQuestions.toString(),
+                        modifier = Modifier.weight(1f),
+                        selected = reviewFilter == ReviewFilter.ALL,
+                        onClick = { onFilterChanged(ReviewFilter.ALL) }
+                    )
                     StatCard("Attempted", summary.attempted.toString(), Modifier.weight(1f))
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard("Correct", summary.correct.toString(), Modifier.weight(1f))
-                    StatCard("Incorrect", summary.wrong.toString(), Modifier.weight(1f))
+                    StatCard(
+                        label = "Correct",
+                        value = summary.correct.toString(),
+                        modifier = Modifier.weight(1f),
+                        selected = reviewFilter == ReviewFilter.CORRECT,
+                        onClick = { onFilterChanged(ReviewFilter.CORRECT) }
+                    )
+                    StatCard(
+                        label = "Incorrect",
+                        value = summary.wrong.toString(),
+                        modifier = Modifier.weight(1f),
+                        selected = reviewFilter == ReviewFilter.INCORRECT,
+                        onClick = { onFilterChanged(ReviewFilter.INCORRECT) }
+                    )
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard("Skipped", summary.skipped.toString(), Modifier.weight(1f))
-                    StatCard("Marked", summary.markedForReview.toString(), Modifier.weight(1f))
+                    StatCard(
+                        label = "Skipped",
+                        value = summary.skipped.toString(),
+                        modifier = Modifier.weight(1f),
+                        selected = reviewFilter == ReviewFilter.SKIPPED,
+                        onClick = { onFilterChanged(ReviewFilter.SKIPPED) }
+                    )
+                    StatCard(
+                        label = "Marked",
+                        value = summary.markedForReview.toString(),
+                        modifier = Modifier.weight(1f),
+                        selected = reviewFilter == ReviewFilter.MARKED,
+                        onClick = { onFilterChanged(ReviewFilter.MARKED) }
+                    )
                 }
             }
             item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text("Review filters", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            ReviewFilter.entries.forEach { filter ->
-                                FilterChip(
-                                    selected = reviewFilter == filter,
-                                    onClick = { onFilterChanged(filter) },
-                                    label = { Text(filter.name.lowercase().replaceFirstChar { it.uppercase() }) }
-                                )
-                            }
-                        }
-                    }
-                }
+                Text(
+                    text = if (reviewFilter == ReviewFilter.ALL) {
+                        "Tap Correct, Incorrect, Skipped, or Marked to filter the review list."
+                    } else {
+                        "Showing ${reviewFilterLabel(reviewFilter)} questions. Tap Total to clear the filter."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             if (filteredItems.isEmpty()) {
                 item {
@@ -912,7 +950,8 @@ private fun SummaryScreen(
                         }
                     )
                 }
-            } else {
+            }
+            else {
                 items(filteredItems) { item ->
                     ReviewCard(item = item)
                 }
@@ -1053,18 +1092,93 @@ private fun ProgressSection(progress: ProgressStats) {
 }
 
 @Composable
-private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
+private fun StatCard(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onClick: (() -> Unit)? = null
+) {
+    val containerColor = if (selected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+    val borderColor = if (selected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
     Card(
-        modifier = modifier,
+        modifier = modifier
+            .border(1.dp, borderColor, RoundedCornerShape(22.dp))
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            ),
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = containerColor)
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun RecentHistoryCard(item: QuizHistoryItem) {
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(item.setTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = historyModeLabel(item.mode),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Text(
+                    text = "${item.accuracy}%",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+            Text(
+                text = "Score ${item.score} • ${item.correct}/${item.totalQuestions} correct • ${formatDuration(item.timeTakenSeconds)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "Attempted ${item.attempted} • Wrong ${item.wrong} • Skipped ${item.skipped} • Marked ${item.markedForReview}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -1254,4 +1368,24 @@ private fun formatDuration(totalSeconds: Int): String {
     val minutes = (safeSeconds % 3600) / 60
     val seconds = safeSeconds % 60
     return "%02d:%02d:%02d".format(hours, minutes, seconds)
+}
+
+private fun historyModeLabel(mode: QuizMode): String {
+    return when (mode) {
+        QuizMode.PRACTICE -> "Practice"
+        QuizMode.EXAM -> "Exam"
+        QuizMode.TIMED_PRACTICE -> "Timed Practice"
+        QuizMode.SECTIONAL -> "Sectional"
+        QuizMode.REVISION -> "Revision"
+    }
+}
+
+private fun reviewFilterLabel(filter: ReviewFilter): String {
+    return when (filter) {
+        ReviewFilter.ALL -> "all"
+        ReviewFilter.CORRECT -> "correct"
+        ReviewFilter.INCORRECT -> "incorrect"
+        ReviewFilter.SKIPPED -> "skipped"
+        ReviewFilter.MARKED -> "marked"
+    }
 }

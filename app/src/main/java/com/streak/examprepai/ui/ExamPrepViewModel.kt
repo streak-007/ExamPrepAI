@@ -8,6 +8,7 @@ import com.streak.examprepai.data.ProgressStats
 import com.streak.examprepai.data.QuestionProgress
 import com.streak.examprepai.data.QuestionReviewItem
 import com.streak.examprepai.data.QuestionSet
+import com.streak.examprepai.data.QuizHistoryItem
 import com.streak.examprepai.data.QuizMode
 import com.streak.examprepai.data.QuizSession
 import com.streak.examprepai.data.QuizSummary
@@ -25,6 +26,7 @@ data class ExamPrepUiState(
     val preferences: UserPreferences = UserPreferences(),
     val progress: ProgressStats = ProgressStats(),
     val availableSets: List<QuestionSet> = emptyList(),
+    val recentHistory: List<QuizHistoryItem> = emptyList(),
     val activeSession: QuizSession? = null,
     val latestSummary: QuizSummary? = null,
     val reviewFilter: ReviewFilter = ReviewFilter.ALL
@@ -43,7 +45,8 @@ class ExamPrepViewModel(
         ExamPrepUiState(
             exams = repository.getExams(),
             preferences = repository.getSavedPreferences(),
-            progress = repository.getProgressStats()
+            progress = repository.getProgressStats(),
+            recentHistory = repository.getRecentQuizHistory()
         )
     )
     val uiState: StateFlow<ExamPrepUiState> = _uiState
@@ -275,11 +278,14 @@ class ExamPrepViewModel(
                 correct = session.correctCount,
                 wrong = session.incorrectCount
             )
+            val summary = buildSummary(session, timeTakenSeconds)
+            repository.saveQuizHistory(summary.toHistoryItem(session))
             state.copy(
                 activeSession = null,
-                latestSummary = buildSummary(session, timeTakenSeconds),
+                latestSummary = summary,
                 reviewFilter = ReviewFilter.ALL,
-                progress = repository.getProgressStats()
+                progress = repository.getProgressStats(),
+                recentHistory = repository.getRecentQuizHistory()
             )
         }
     }
@@ -287,10 +293,13 @@ class ExamPrepViewModel(
     fun finishPractice() {
         _uiState.update { state ->
             val session = state.activeSession ?: return@update state
+            val summary = buildSummary(session, 0)
+            repository.saveQuizHistory(summary.toHistoryItem(session))
             state.copy(
                 activeSession = null,
-                latestSummary = buildSummary(session, 0),
-                reviewFilter = ReviewFilter.ALL
+                latestSummary = summary,
+                reviewFilter = ReviewFilter.ALL,
+                recentHistory = repository.getRecentQuizHistory()
             )
         }
     }
@@ -344,6 +353,24 @@ class ExamPrepViewModel(
             accuracy = if (attempted == 0) 0 else ((correct * 100f) / attempted).toInt(),
             timeTakenSeconds = timeTakenSeconds,
             reviewItems = reviewItems
+        )
+    }
+
+    private fun QuizSummary.toHistoryItem(session: QuizSession): QuizHistoryItem {
+        return QuizHistoryItem(
+            setId = session.set.id,
+            setTitle = setTitle,
+            mode = mode,
+            attempted = attempted,
+            correct = correct,
+            wrong = wrong,
+            skipped = skipped,
+            markedForReview = markedForReview,
+            totalQuestions = totalQuestions,
+            score = score,
+            accuracy = accuracy,
+            timeTakenSeconds = timeTakenSeconds,
+            completedAt = System.currentTimeMillis()
         )
     }
 }

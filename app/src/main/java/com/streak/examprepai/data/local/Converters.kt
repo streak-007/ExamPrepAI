@@ -1,6 +1,7 @@
 package com.streak.examprepai.data.local
 
 import androidx.room.TypeConverter
+import com.streak.examprepai.data.QuizMode
 
 class Converters {
 
@@ -12,4 +13,10 @@ class Converters {
         if (value.isBlank()) return emptyList()
         return value.split("||").filter { it.isNotBlank() }
     }
+
+    @TypeConverter
+    fun fromQuizMode(value: QuizMode): String = value.name
+
+    @TypeConverter
+    fun toQuizMode(value: String): QuizMode = QuizMode.valueOf(value)
 }
