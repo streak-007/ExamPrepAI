@@ -13,14 +13,18 @@ data class UserPreferencesEntity(
     val examId: String,
     val examName: String,
     val subjectIds: List<String>,
-    val subjectNames: List<String>
+    val subjectNames: List<String>,
+    val currentStreak: Int = 0,
+    val lastActiveDate: Long = 0L
 ) {
     fun toDomain(): UserPreferences {
         return UserPreferences(
             examId = examId,
             examName = examName,
             subjectIds = subjectIds,
-            subjectNames = subjectNames
+            subjectNames = subjectNames,
+            currentStreak = currentStreak,
+            lastActiveDate = lastActiveDate
         )
     }
 
@@ -30,7 +34,9 @@ data class UserPreferencesEntity(
                 examId = domain.examId,
                 examName = domain.examName,
                 subjectIds = domain.subjectIds,
-                subjectNames = domain.subjectNames
+                subjectNames = domain.subjectNames,
+                currentStreak = domain.currentStreak,
+                lastActiveDate = domain.lastActiveDate
             )
         }
     }

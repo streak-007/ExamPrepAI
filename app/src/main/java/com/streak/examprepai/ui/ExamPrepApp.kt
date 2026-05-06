@@ -137,6 +137,7 @@ fun ExamPrepApp(viewModel: ExamPrepViewModel) {
                     progress = state.progress,
                     recentHistory = state.recentHistory,
                     questionSets = state.availableSets,
+                    streak = state.preferences.currentStreak,
                     onStartQuiz = { set, mode ->
                         viewModel.startQuiz(set, mode)
                         navController.navigate(Routes.Quiz) {
@@ -286,6 +287,7 @@ private fun DashboardScreen(
     progress: ProgressStats,
     recentHistory: List<QuizHistoryItem>,
     questionSets: List<QuestionSet>,
+    streak: Int,
     onStartQuiz: (QuestionSet, QuizMode) -> Unit
 ) {
     Scaffold(contentWindowInsets = WindowInsets.safeDrawing) { padding ->
@@ -304,7 +306,8 @@ private fun DashboardScreen(
                         "Your dashboard will grow with every attempt."
                     } else {
                         "Focused on ${subjects.joinToString()}."
-                    }
+                    },
+                    streak = streak
                 )
             }
             item { ProgressSection(progress = progress) }
@@ -1022,7 +1025,8 @@ private fun ReviewCard(item: QuestionReviewItem) {
 private fun HeroCard(
     eyebrow: String,
     title: String,
-    subtitle: String
+    subtitle: String,
+    streak: Int? = null
 ) {
     ElevatedCard(
         shape = RoundedCornerShape(28.dp),
@@ -1042,7 +1046,28 @@ private fun HeroCard(
                 .padding(24.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(eyebrow.uppercase(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(eyebrow.uppercase(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    if (streak != null && streak > 0) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                "🔥 $streak Day Streak",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
                 Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text(subtitle, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

@@ -285,7 +285,8 @@ class ExamPrepViewModel(
                 latestSummary = summary,
                 reviewFilter = ReviewFilter.ALL,
                 progress = repository.getProgressStats(),
-                recentHistory = repository.getRecentQuizHistory()
+                recentHistory = repository.getRecentQuizHistory(),
+                preferences = repository.getSavedPreferences()
             )
         }
     }
@@ -299,7 +300,8 @@ class ExamPrepViewModel(
                 activeSession = null,
                 latestSummary = summary,
                 reviewFilter = ReviewFilter.ALL,
-                recentHistory = repository.getRecentQuizHistory()
+                recentHistory = repository.getRecentQuizHistory(),
+                preferences = repository.getSavedPreferences()
             )
         }
     }

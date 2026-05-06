@@ -36,7 +36,9 @@ data class UserPreferences(
     val examId: String = "",
     val examName: String = "",
     val subjectIds: List<String> = emptyList(),
-    val subjectNames: List<String> = emptyList()
+    val subjectNames: List<String> = emptyList(),
+    val currentStreak: Int = 0,
+    val lastActiveDate: Long = 0L
 )
 
 data class ProgressStats(
