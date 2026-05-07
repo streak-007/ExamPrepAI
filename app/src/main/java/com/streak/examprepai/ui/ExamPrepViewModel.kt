@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import com.streak.examprepai.data.Exam
 import com.streak.examprepai.data.ExamPrepRepository
 import com.streak.examprepai.data.ProgressStats
+import com.streak.examprepai.data.PracticeRecommendation
 import com.streak.examprepai.data.QuestionProgress
 import com.streak.examprepai.data.QuestionReviewItem
 import com.streak.examprepai.data.QuestionSet
@@ -13,8 +14,14 @@ import com.streak.examprepai.data.QuizMode
 import com.streak.examprepai.data.QuizSession
 import com.streak.examprepai.data.QuizSummary
 import com.streak.examprepai.data.ReviewFilter
+import com.streak.examprepai.data.SavedSession
+import com.streak.examprepai.data.StreakInfo
 import com.streak.examprepai.data.Subject
+import com.streak.examprepai.data.SubjectPerformance
 import com.streak.examprepai.data.UserPreferences
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -27,6 +34,11 @@ data class ExamPrepUiState(
     val progress: ProgressStats = ProgressStats(),
     val availableSets: List<QuestionSet> = emptyList(),
     val recentHistory: List<QuizHistoryItem> = emptyList(),
+    val streakInfo: StreakInfo = StreakInfo(),
+    val subjectPerformance: List<SubjectPerformance> = emptyList(),
+    val weakAreaRecommendations: List<PracticeRecommendation> = emptyList(),
+    val revisionQuestionCounts: Map<String, Int> = emptyMap(),
+    val resumableSession: QuizSession? = null,
     val activeSession: QuizSession? = null,
     val latestSummary: QuizSummary? = null,
     val reviewFilter: ReviewFilter = ReviewFilter.ALL
@@ -55,15 +67,29 @@ class ExamPrepViewModel(
         val preferences = _uiState.value.preferences
         val selectedExam = _uiState.value.exams.firstOrNull { it.id == preferences.examId }
         val selectedSubjectIds = preferences.subjectIds.toSet()
+        val resumableSession = repository.getSavedSession()?.toQuizSession()
         _uiState.update {
+            val availableSets = if (selectedSubjectIds.isEmpty()) {
+                emptyList()
+            } else {
+                repository.getQuestionSetsForSubjects(selectedSubjectIds.toList())
+            }
             it.copy(
                 selectedExam = selectedExam,
                 selectedSubjectIds = selectedSubjectIds,
-                availableSets = if (selectedSubjectIds.isEmpty()) {
-                    emptyList()
-                } else {
-                    repository.getQuestionSetsForSubjects(selectedSubjectIds.toList())
-                }
+                resumableSession = resumableSession,
+                availableSets = availableSets,
+                revisionQuestionCounts = buildRevisionCounts(availableSets),
+                streakInfo = buildStreakInfo(it.recentHistory),
+                subjectPerformance = buildSubjectPerformance(
+                    recentHistory = it.recentHistory,
+                    subjects = selectedExam?.subjects?.filter { subject -> subject.id in selectedSubjectIds }.orEmpty(),
+                    availableSets = availableSets
+                ),
+                weakAreaRecommendations = buildWeakAreaRecommendations(
+                    recentHistory = it.recentHistory,
+                    availableSets = availableSets
+                )
             )
         }
     }
@@ -98,28 +124,59 @@ class ExamPrepViewModel(
         )
         repository.savePreferences(preferences)
         _uiState.update {
+            val availableSets = repository.getQuestionSetsForSubjects(preferences.subjectIds)
             it.copy(
                 preferences = preferences,
-                availableSets = repository.getQuestionSetsForSubjects(preferences.subjectIds)
+                availableSets = availableSets,
+                revisionQuestionCounts = buildRevisionCounts(availableSets),
+                streakInfo = buildStreakInfo(it.recentHistory),
+                subjectPerformance = buildSubjectPerformance(
+                    recentHistory = it.recentHistory,
+                    subjects = subjects,
+                    availableSets = availableSets
+                ),
+                weakAreaRecommendations = buildWeakAreaRecommendations(
+                    recentHistory = it.recentHistory,
+                    availableSets = availableSets
+                )
             )
         }
     }
 
     fun startQuiz(questionSet: QuestionSet, mode: QuizMode) {
-        val firstQuestion = questionSet.questions.first()
+        val resolvedSet = if (mode == QuizMode.REVISION) {
+            repository.getRevisionQuestionSet(questionSet.id) ?: return
+        } else {
+            questionSet
+        }
+        val firstQuestion = resolvedSet.questions.first()
         val initialProgress = QuestionProgress(
             questionId = firstQuestion.id,
             isVisited = true
         )
+        val newSession = QuizSession(
+            sessionId = ++sessionCounter,
+            mode = mode,
+            set = resolvedSet,
+            questionProgress = mapOf(firstQuestion.id to initialProgress),
+            timedPracticeSecondsPerQuestion = 60
+        )
+        persistSession(newSession)
         _uiState.update { state ->
             state.copy(
-                activeSession = QuizSession(
-                    sessionId = ++sessionCounter,
-                    mode = mode,
-                    set = questionSet,
-                    questionProgress = mapOf(firstQuestion.id to initialProgress),
-                    timedPracticeSecondsPerQuestion = 60
-                ),
+                activeSession = newSession,
+                resumableSession = newSession,
+                latestSummary = null,
+                reviewFilter = ReviewFilter.ALL
+            )
+        }
+    }
+
+    fun resumeSavedSession() {
+        _uiState.update { state ->
+            val session = state.resumableSession ?: return@update state
+            state.copy(
+                activeSession = session,
                 latestSummary = null,
                 reviewFilter = ReviewFilter.ALL
             )
@@ -140,6 +197,12 @@ class ExamPrepViewModel(
                         if (wasUnanswered) {
                             repository.recordAnswer(index == question.correctOptionIndex)
                         }
+                        repository.updateQuestionInsight(
+                            setId = session.set.id.removeSuffix(" Revision"),
+                            subjectId = session.set.subjectId,
+                            questionId = question.id,
+                            answeredCorrectly = index == question.correctOptionIndex
+                        )
                         progress.copy(
                             selectedOptionIndex = index,
                             isVisited = true,
@@ -156,9 +219,12 @@ class ExamPrepViewModel(
                     )
                 }
             }
+            persistSession(session.withProgress(updatedProgress))
             state.copy(
                 activeSession = session.withProgress(updatedProgress),
-                progress = repository.getProgressStats()
+                resumableSession = session.withProgress(updatedProgress),
+                progress = repository.getProgressStats(),
+                revisionQuestionCounts = buildRevisionCounts(state.availableSets)
             )
         }
     }
@@ -172,7 +238,13 @@ class ExamPrepViewModel(
                 selectedOptionIndex = null,
                 isVisited = true
             )
-            state.copy(activeSession = session.withProgress(updatedProgress))
+            val updatedSession = session.withProgress(updatedProgress)
+            persistSession(updatedSession)
+            state.copy(
+                activeSession = updatedSession,
+                resumableSession = updatedSession,
+                revisionQuestionCounts = buildRevisionCounts(state.availableSets)
+            )
         }
     }
 
@@ -199,11 +271,14 @@ class ExamPrepViewModel(
                 questionId = nextQuestionId,
                 isVisited = true
             )
+            val nextSession = updatedSession.copy(
+                currentIndex = nextIndex,
+                questionProgress = updatedSession.questionProgress + (nextQuestionId to nextProgress.copy(isVisited = true))
+            )
+            persistSession(nextSession)
             state.copy(
-                activeSession = updatedSession.copy(
-                    currentIndex = nextIndex,
-                    questionProgress = updatedSession.questionProgress + (nextQuestionId to nextProgress.copy(isVisited = true))
-                )
+                activeSession = nextSession,
+                resumableSession = nextSession
             )
         }
     }
@@ -221,11 +296,14 @@ class ExamPrepViewModel(
                 questionId = questionId,
                 isVisited = true
             )
+            val updatedSession = session.copy(
+                currentIndex = previousIndex,
+                questionProgress = session.questionProgress + (questionId to previousProgress.copy(isVisited = true))
+            )
+            persistSession(updatedSession)
             state.copy(
-                activeSession = session.copy(
-                    currentIndex = previousIndex,
-                    questionProgress = session.questionProgress + (questionId to previousProgress.copy(isVisited = true))
-                )
+                activeSession = updatedSession,
+                resumableSession = updatedSession
             )
         }
     }
@@ -236,11 +314,14 @@ class ExamPrepViewModel(
             val questionId = session.set.questions[index].id
             val updatedProgress = session.questionProgress[questionId]?.copy(isVisited = true)
                 ?: QuestionProgress(questionId = questionId, isVisited = true)
+            val updatedSession = session.copy(
+                currentIndex = index,
+                questionProgress = session.questionProgress + (questionId to updatedProgress)
+            )
+            persistSession(updatedSession)
             state.copy(
-                activeSession = session.copy(
-                    currentIndex = index,
-                    questionProgress = session.questionProgress + (questionId to updatedProgress)
-                )
+                activeSession = updatedSession,
+                resumableSession = updatedSession
             )
         }
     }
@@ -252,7 +333,18 @@ class ExamPrepViewModel(
                 isBookmarked = !session.currentProgress.isBookmarked,
                 isVisited = true
             )
-            state.copy(activeSession = session.withProgress(updated))
+            repository.updateQuestionInsight(
+                setId = session.set.id.removeSuffix(" Revision"),
+                subjectId = session.set.subjectId,
+                questionId = session.currentQuestion.id,
+                isBookmarked = updated.isBookmarked
+            )
+            val updatedSession = session.withProgress(updated)
+            persistSession(updatedSession)
+            state.copy(
+                activeSession = updatedSession,
+                resumableSession = updatedSession
+            )
         }
     }
 
@@ -267,7 +359,12 @@ class ExamPrepViewModel(
                 isLocked = true,
                 isTimedOut = true
             )
-            state.copy(activeSession = session.withProgress(updated))
+            val updatedSession = session.withProgress(updated)
+            persistSession(updatedSession)
+            state.copy(
+                activeSession = updatedSession,
+                resumableSession = updatedSession
+            )
         }
     }
 
@@ -279,14 +376,17 @@ class ExamPrepViewModel(
                 wrong = session.incorrectCount
             )
             val summary = buildSummary(session, timeTakenSeconds)
+            syncQuestionInsightsFromSummary(session, summary)
             repository.saveQuizHistory(summary.toHistoryItem(session))
+            repository.clearSavedSession()
             state.copy(
                 activeSession = null,
+                resumableSession = null,
                 latestSummary = summary,
                 reviewFilter = ReviewFilter.ALL,
                 progress = repository.getProgressStats(),
                 recentHistory = repository.getRecentQuizHistory()
-            )
+            ).refreshRecommendations()
         }
     }
 
@@ -294,18 +394,28 @@ class ExamPrepViewModel(
         _uiState.update { state ->
             val session = state.activeSession ?: return@update state
             val summary = buildSummary(session, 0)
+            syncQuestionInsightsFromSummary(session, summary)
             repository.saveQuizHistory(summary.toHistoryItem(session))
+            repository.clearSavedSession()
             state.copy(
                 activeSession = null,
+                resumableSession = null,
                 latestSummary = summary,
                 reviewFilter = ReviewFilter.ALL,
                 recentHistory = repository.getRecentQuizHistory()
-            )
+            ).refreshRecommendations()
         }
     }
 
     fun leaveQuiz() {
-        _uiState.update { it.copy(activeSession = null) }
+        _uiState.update { state ->
+            val session = state.activeSession ?: return@update state
+            persistSession(session)
+            state.copy(
+                activeSession = null,
+                resumableSession = session
+            )
+        }
     }
 
     fun clearSummary() {
@@ -371,6 +481,167 @@ class ExamPrepViewModel(
             accuracy = accuracy,
             timeTakenSeconds = timeTakenSeconds,
             completedAt = System.currentTimeMillis()
+        )
+    }
+
+    private fun persistSession(session: QuizSession) {
+        repository.saveSession(
+            SavedSession(
+                sessionId = session.sessionId,
+                mode = session.mode,
+                setId = session.set.id,
+                currentIndex = session.currentIndex,
+                questionProgress = session.questionProgress.values.toList(),
+                timedPracticeSecondsPerQuestion = session.timedPracticeSecondsPerQuestion
+            )
+        )
+    }
+
+    private fun SavedSession.toQuizSession(): QuizSession? {
+        val set = repository.findQuestionSetById(setId) ?: return null
+        sessionCounter = maxOf(sessionCounter, sessionId)
+        val progressMap = questionProgress.associateBy { it.questionId }
+        return QuizSession(
+            sessionId = sessionId,
+            mode = mode,
+            set = set,
+            currentIndex = currentIndex.coerceIn(0, set.questions.lastIndex),
+            questionProgress = progressMap,
+            timedPracticeSecondsPerQuestion = timedPracticeSecondsPerQuestion
+        )
+    }
+
+    private fun ExamPrepUiState.refreshRecommendations(): ExamPrepUiState {
+        return copy(
+            streakInfo = buildStreakInfo(recentHistory),
+            subjectPerformance = buildSubjectPerformance(
+                recentHistory = recentHistory,
+                subjects = selectedExam?.subjects?.filter { subject -> subject.id in selectedSubjectIds }.orEmpty(),
+                availableSets = availableSets
+            ),
+            weakAreaRecommendations = buildWeakAreaRecommendations(
+                recentHistory = recentHistory,
+                availableSets = availableSets
+            ),
+            revisionQuestionCounts = buildRevisionCounts(availableSets)
+        )
+    }
+
+    private fun buildRevisionCounts(availableSets: List<QuestionSet>): Map<String, Int> {
+        return availableSets.associate { set ->
+            set.id to repository.getRevisionQuestionCount(set.id)
+        }
+    }
+
+    private fun syncQuestionInsightsFromSummary(session: QuizSession, summary: QuizSummary) {
+        if (session.mode != QuizMode.EXAM && session.mode != QuizMode.SECTIONAL) {
+            return
+        }
+        summary.reviewItems.forEach { item ->
+            repository.updateQuestionInsight(
+                setId = session.set.id.removeSuffix(" Revision"),
+                subjectId = session.set.subjectId,
+                questionId = item.question.id,
+                answeredCorrectly = item.selectedOptionIndex?.let { it == item.question.correctOptionIndex },
+                isBookmarked = item.isBookmarked
+            )
+        }
+    }
+
+    private fun buildSubjectPerformance(
+        recentHistory: List<QuizHistoryItem>,
+        subjects: List<Subject>,
+        availableSets: List<QuestionSet>
+    ): List<SubjectPerformance> {
+        if (recentHistory.isEmpty() || subjects.isEmpty() || availableSets.isEmpty()) return emptyList()
+
+        val setsById = availableSets.associateBy { it.id }
+        val historyBySubject = recentHistory
+            .mapNotNull { history ->
+                val set = setsById[history.setId] ?: return@mapNotNull null
+                set.subjectId to history
+            }
+            .groupBy({ it.first }, { it.second })
+
+        return subjects.mapNotNull { subject ->
+            val entries = historyBySubject[subject.id].orEmpty()
+            if (entries.isEmpty()) return@mapNotNull null
+
+            SubjectPerformance(
+                subjectId = subject.id,
+                subjectName = subject.name,
+                attempts = entries.sumOf { it.attempted },
+                correct = entries.sumOf { it.correct },
+                wrong = entries.sumOf { it.wrong },
+                latestAccuracy = entries.maxByOrNull { it.completedAt }?.accuracy ?: 0
+            )
+        }.sortedWith(
+            compareBy<SubjectPerformance> { it.accuracy }
+                .thenByDescending { it.wrong }
+                .thenBy { it.subjectName }
+        )
+    }
+
+    private fun buildWeakAreaRecommendations(
+        recentHistory: List<QuizHistoryItem>,
+        availableSets: List<QuestionSet>
+    ): List<PracticeRecommendation> {
+        if (recentHistory.isEmpty() || availableSets.isEmpty()) return emptyList()
+
+        return recentHistory
+            .filter { history -> availableSets.any { it.id == history.setId } }
+            .sortedWith(compareBy<QuizHistoryItem> { it.accuracy }.thenByDescending { it.completedAt })
+            .distinctBy { it.setId }
+            .mapNotNull { history ->
+                val set = availableSets.firstOrNull { it.id == history.setId } ?: return@mapNotNull null
+                PracticeRecommendation(
+                    questionSet = set,
+                    latestAccuracy = history.accuracy,
+                    attempts = history.attempted,
+                    wrongAnswers = history.wrong,
+                    markedForReview = history.markedForReview
+                )
+            }
+            .take(3)
+    }
+
+    private fun buildStreakInfo(recentHistory: List<QuizHistoryItem>): StreakInfo {
+        if (recentHistory.isEmpty()) return StreakInfo()
+
+        val zoneId = ZoneId.systemDefault()
+        val uniqueDates = recentHistory
+            .map { history -> Instant.ofEpochMilli(history.completedAt).atZone(zoneId).toLocalDate() }
+            .distinct()
+            .sortedDescending()
+
+        val today = LocalDate.now(zoneId)
+        val practicedToday = today in uniqueDates
+        val streakStart = if (practicedToday) today else today.minusDays(1)
+
+        var currentDays = 0
+        var cursor = streakStart
+        while (cursor in uniqueDates) {
+            currentDays += 1
+            cursor = cursor.minusDays(1)
+        }
+
+        var longestDays = 0
+        var runningDays = 0
+        var previousDate: LocalDate? = null
+        uniqueDates.sorted().forEach { date ->
+            runningDays = if (previousDate != null && previousDate!!.plusDays(1) == date) {
+                runningDays + 1
+            } else {
+                1
+            }
+            longestDays = maxOf(longestDays, runningDays)
+            previousDate = date
+        }
+
+        return StreakInfo(
+            currentDays = currentDays,
+            longestDays = longestDays,
+            practicedToday = practicedToday
         )
     }
 }

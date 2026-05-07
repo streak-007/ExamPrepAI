@@ -65,6 +65,41 @@ data class QuizHistoryItem(
     val completedAt: Long
 )
 
+data class SavedSession(
+    val sessionId: Long,
+    val mode: QuizMode,
+    val setId: String,
+    val currentIndex: Int,
+    val questionProgress: List<QuestionProgress>,
+    val timedPracticeSecondsPerQuestion: Int
+)
+
+data class PracticeRecommendation(
+    val questionSet: QuestionSet,
+    val latestAccuracy: Int,
+    val attempts: Int,
+    val wrongAnswers: Int,
+    val markedForReview: Int
+)
+
+data class StreakInfo(
+    val currentDays: Int = 0,
+    val longestDays: Int = 0,
+    val practicedToday: Boolean = false
+)
+
+data class SubjectPerformance(
+    val subjectId: String,
+    val subjectName: String,
+    val attempts: Int,
+    val correct: Int,
+    val wrong: Int,
+    val latestAccuracy: Int
+) {
+    val accuracy: Int
+        get() = if (attempts == 0) 0 else ((correct * 100f) / attempts).toInt()
+}
+
 enum class QuizMode {
     PRACTICE,
     EXAM,

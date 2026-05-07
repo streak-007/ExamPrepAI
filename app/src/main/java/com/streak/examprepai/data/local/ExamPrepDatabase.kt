@@ -7,8 +7,8 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
 @Database(
-    entities = [UserPreferencesEntity::class, ProgressStatsEntity::class, QuizHistoryEntity::class],
-    version = 2,
+    entities = [UserPreferencesEntity::class, ProgressStatsEntity::class, QuizHistoryEntity::class, SavedSessionEntity::class, QuestionInsightEntity::class],
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

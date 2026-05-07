@@ -3,8 +3,10 @@ package com.streak.examprepai.data.local
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.streak.examprepai.data.ProgressStats
+import com.streak.examprepai.data.QuestionProgress
 import com.streak.examprepai.data.QuizHistoryItem
 import com.streak.examprepai.data.QuizMode
+import com.streak.examprepai.data.SavedSession
 import com.streak.examprepai.data.UserPreferences
 
 @Entity(tableName = "user_preferences")
@@ -119,3 +121,47 @@ data class QuizHistoryEntity(
         }
     }
 }
+
+@Entity(tableName = "saved_session")
+data class SavedSessionEntity(
+    @PrimaryKey val id: Int = 0,
+    val sessionId: Long,
+    val mode: QuizMode,
+    val setId: String,
+    val currentIndex: Int,
+    val questionProgress: List<QuestionProgress>,
+    val timedPracticeSecondsPerQuestion: Int
+) {
+    fun toDomain(): SavedSession {
+        return SavedSession(
+            sessionId = sessionId,
+            mode = mode,
+            setId = setId,
+            currentIndex = currentIndex,
+            questionProgress = questionProgress,
+            timedPracticeSecondsPerQuestion = timedPracticeSecondsPerQuestion
+        )
+    }
+
+    companion object {
+        fun fromDomain(domain: SavedSession): SavedSessionEntity {
+            return SavedSessionEntity(
+                sessionId = domain.sessionId,
+                mode = domain.mode,
+                setId = domain.setId,
+                currentIndex = domain.currentIndex,
+                questionProgress = domain.questionProgress,
+                timedPracticeSecondsPerQuestion = domain.timedPracticeSecondsPerQuestion
+            )
+        }
+    }
+}
+
+@Entity(tableName = "question_insight")
+data class QuestionInsightEntity(
+    @PrimaryKey val questionId: String,
+    val setId: String,
+    val subjectId: String,
+    val wrongCount: Int,
+    val isBookmarked: Boolean
+)

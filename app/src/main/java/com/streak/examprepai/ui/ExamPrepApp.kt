@@ -61,6 +61,7 @@ import androidx.navigation.compose.rememberNavController
 import com.streak.examprepai.data.Exam
 import com.streak.examprepai.data.PaletteState
 import com.streak.examprepai.data.ProgressStats
+import com.streak.examprepai.data.PracticeRecommendation
 import com.streak.examprepai.data.QuizHistoryItem
 import com.streak.examprepai.data.QuestionReviewItem
 import com.streak.examprepai.data.QuestionSet
@@ -68,7 +69,9 @@ import com.streak.examprepai.data.QuizMode
 import com.streak.examprepai.data.QuizSession
 import com.streak.examprepai.data.QuizSummary
 import com.streak.examprepai.data.ReviewFilter
+import com.streak.examprepai.data.StreakInfo
 import com.streak.examprepai.data.Subject
+import com.streak.examprepai.data.SubjectPerformance
 import kotlinx.coroutines.delay
 
 private object Routes {
@@ -136,9 +139,26 @@ fun ExamPrepApp(viewModel: ExamPrepViewModel) {
                     subjects = state.preferences.subjectNames,
                     progress = state.progress,
                     recentHistory = state.recentHistory,
+                    streakInfo = state.streakInfo,
+                    subjectPerformance = state.subjectPerformance,
+                    weakAreaRecommendations = state.weakAreaRecommendations,
+                    revisionQuestionCounts = state.revisionQuestionCounts,
+                    resumableSession = state.resumableSession,
                     questionSets = state.availableSets,
+                    onResumeSession = {
+                        viewModel.resumeSavedSession()
+                        navController.navigate(Routes.Quiz) {
+                            launchSingleTop = true
+                        }
+                    },
                     onStartQuiz = { set, mode ->
                         viewModel.startQuiz(set, mode)
+                        navController.navigate(Routes.Quiz) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onRetryWeakArea = { set ->
+                        viewModel.startQuiz(set, QuizMode.PRACTICE)
                         navController.navigate(Routes.Quiz) {
                             launchSingleTop = true
                         }
@@ -178,7 +198,6 @@ fun ExamPrepApp(viewModel: ExamPrepViewModel) {
                             onPrevious = viewModel::previousQuestion,
                             onJumpToQuestion = viewModel::revisitQuestion,
                             onToggleBookmark = viewModel::toggleBookmark,
-                            onTimeOutCurrentQuestion = viewModel::timeOutCurrentQuestion,
                             onSubmitExam = viewModel::submitExam,
                             onFinishPractice = viewModel::finishPractice
                         )
@@ -285,8 +304,15 @@ private fun DashboardScreen(
     subjects: List<String>,
     progress: ProgressStats,
     recentHistory: List<QuizHistoryItem>,
+    streakInfo: StreakInfo,
+    subjectPerformance: List<SubjectPerformance>,
+    weakAreaRecommendations: List<PracticeRecommendation>,
+    revisionQuestionCounts: Map<String, Int>,
+    resumableSession: QuizSession?,
     questionSets: List<QuestionSet>,
-    onStartQuiz: (QuestionSet, QuizMode) -> Unit
+    onResumeSession: () -> Unit,
+    onStartQuiz: (QuestionSet, QuizMode) -> Unit,
+    onRetryWeakArea: (QuestionSet) -> Unit
 ) {
     Scaffold(contentWindowInsets = WindowInsets.safeDrawing) { padding ->
         LazyColumn(
@@ -307,7 +333,27 @@ private fun DashboardScreen(
                     }
                 )
             }
+            item { StreakCard(streakInfo = streakInfo) }
             item { ProgressSection(progress = progress) }
+            if (subjectPerformance.isNotEmpty()) {
+                item { SubjectPerformanceSection(subjectPerformance = subjectPerformance) }
+            }
+            if (resumableSession != null) {
+                item {
+                    ResumeSessionCard(
+                        session = resumableSession,
+                        onResume = onResumeSession
+                    )
+                }
+            }
+            if (weakAreaRecommendations.isNotEmpty()) {
+                item {
+                    WeakAreasSection(
+                        recommendations = weakAreaRecommendations,
+                        onRetry = onRetryWeakArea
+                    )
+                }
+            }
             item { RecentHistorySection(history = recentHistory) }
             item { SectionTitle("Question sets") }
             if (questionSets.isEmpty()) {
@@ -321,9 +367,216 @@ private fun DashboardScreen(
                 items(questionSets) { set ->
                     QuestionSetCard(
                         questionSet = set,
+                        revisionCount = revisionQuestionCounts[set.id] ?: 0,
                         onStartQuiz = onStartQuiz
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubjectPerformanceSection(subjectPerformance: List<SubjectPerformance>) {
+    val strongest = subjectPerformance.maxByOrNull { it.accuracy }
+    val weakest = subjectPerformance.minByOrNull { it.accuracy }
+
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Subject performance", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            if (strongest != null && weakest != null) {
+                Text(
+                    text = if (strongest.subjectId == weakest.subjectId) {
+                        "${strongest.subjectName} is your only tracked subject so far at ${strongest.accuracy}% accuracy."
+                    } else {
+                        "Strongest: ${strongest.subjectName} (${strongest.accuracy}%) • Needs work: ${weakest.subjectName} (${weakest.accuracy}%)."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            subjectPerformance.forEach { performance ->
+                SubjectPerformanceRow(performance = performance)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubjectPerformanceRow(performance: SubjectPerformance) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(performance.subjectName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Attempts ${performance.attempts} • Correct ${performance.correct} • Wrong ${performance.wrong} • Last ${performance.latestAccuracy}%",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            "${performance.accuracy}%",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = when {
+                performance.accuracy >= 75 -> MaterialTheme.colorScheme.secondary
+                performance.accuracy >= 50 -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.error
+            }
+        )
+    }
+}
+
+@Composable
+private fun StreakCard(streakInfo: StreakInfo) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Daily streak", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                StatCard("Current", "${streakInfo.currentDays}d", Modifier.weight(1f))
+                StatCard("Best", "${streakInfo.longestDays}d", Modifier.weight(1f))
+            }
+            Text(
+                text = if (streakInfo.practicedToday) {
+                    "You have already practiced today. Keep the streak alive tomorrow."
+                } else if (streakInfo.currentDays > 0) {
+                    "Practice once today to protect your ${streakInfo.currentDays}-day streak."
+                } else {
+                    "Start a streak today with one completed session."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeakAreasSection(
+    recommendations: List<PracticeRecommendation>,
+    onRetry: (QuestionSet) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionTitle("Practice next")
+        recommendations.forEach { recommendation ->
+            WeakAreaCard(
+                recommendation = recommendation,
+                onRetry = { onRetry(recommendation.questionSet) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeakAreaCard(
+    recommendation: PracticeRecommendation,
+    onRetry: () -> Unit
+) {
+    val questionSet = recommendation.questionSet
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(questionSet.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Last accuracy ${recommendation.latestAccuracy}% • ${questionSet.difficulty}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                if (questionSet.isPremium) {
+                    PremiumBadge()
+                }
+            }
+            Text(
+                "Wrong ${recommendation.wrongAnswers} • Marked ${recommendation.markedForReview} • Attempted ${recommendation.attempts}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                if (questionSet.isPremium) {
+                    "This set showed recent struggle, but it is still premium locked."
+                } else {
+                    "This is one of your weakest recent sets. Replaying it in practice mode should help close the gap quickly."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (questionSet.isPremium) {
+                OutlinedButton(
+                    onClick = {},
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Premium unlock coming soon")
+                }
+            } else {
+                Button(
+                    onClick = onRetry,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Practice again")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResumeSessionCard(
+    session: QuizSession,
+    onResume: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Resume where you left off", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                "${historyModeLabel(session.mode)} • ${session.set.title}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                "Question ${session.currentIndex + 1} of ${session.set.questions.size} • Answered ${session.answeredCount} • Marked ${session.markedCount}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Button(
+                onClick = onResume,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Resume session")
             }
         }
     }
@@ -358,17 +611,15 @@ private fun QuizScreen(
     onPrevious: () -> Unit,
     onJumpToQuestion: (Int) -> Unit,
     onToggleBookmark: () -> Unit,
-    onTimeOutCurrentQuestion: () -> Unit,
     onSubmitExam: (Int) -> Unit,
     onFinishPractice: () -> Unit
 ) {
     var showSubmitDialog by rememberSaveable(session.sessionId) { mutableStateOf(false) }
     var remainingSeconds by rememberSaveable(session.sessionId) { mutableStateOf(session.set.estimatedMinutes * 60) }
     val isExamMode = session.mode == QuizMode.EXAM
-    val isTimedPracticeMode = session.mode == QuizMode.TIMED_PRACTICE
     val progress = session.currentProgress
     val question = session.currentQuestion
-    val showExplanation = (session.mode == QuizMode.PRACTICE || session.mode == QuizMode.TIMED_PRACTICE) && progress.isLocked
+    val showExplanation = (session.mode == QuizMode.PRACTICE || session.mode == QuizMode.REVISION) && progress.isLocked
 
     if (isExamMode) {
         LaunchedEffect(remainingSeconds) {
@@ -377,23 +628,6 @@ private fun QuizScreen(
                 remainingSeconds -= 1
             } else {
                 onSubmitExam(session.set.estimatedMinutes * 60)
-            }
-        }
-    }
-
-    LaunchedEffect(session.sessionId, session.currentIndex) {
-        if (isTimedPracticeMode) {
-            remainingSeconds = session.timedPracticeSecondsPerQuestion
-        }
-    }
-
-    if (isTimedPracticeMode && !progress.isLocked) {
-        LaunchedEffect(session.sessionId, session.currentIndex, remainingSeconds, progress.isLocked) {
-            if (remainingSeconds > 0) {
-                delay(1000)
-                remainingSeconds -= 1
-            } else {
-                onTimeOutCurrentQuestion()
             }
         }
     }
@@ -467,8 +701,7 @@ private fun QuizScreen(
                         answered = session.answeredCount,
                         total = session.set.questions.size,
                         bookmarked = session.bookmarkedCount,
-                        isTimedPracticeMode = isTimedPracticeMode,
-                        secondsPerQuestion = session.timedPracticeSecondsPerQuestion
+                        isRevisionMode = session.mode == QuizMode.REVISION
                     )
                 }
             }
@@ -601,7 +834,7 @@ private fun QuizHeader(
                     text = when (session.mode) {
                         QuizMode.EXAM -> "Exam Mode"
                         QuizMode.PRACTICE -> "Practice Mode"
-                        QuizMode.TIMED_PRACTICE -> "Timed Practice Mode"
+                        QuizMode.REVISION -> "Revision Mode"
                         else -> "Practice"
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -626,18 +859,6 @@ private fun QuizHeader(
                     color = timerColor,
                     fontWeight = FontWeight.Bold
                 )
-            } else if (session.mode == QuizMode.TIMED_PRACTICE) {
-                val timerColor = when {
-                    remainingSeconds <= 10 -> MaterialTheme.colorScheme.error
-                    remainingSeconds <= 20 -> MaterialTheme.colorScheme.tertiary
-                    else -> MaterialTheme.colorScheme.primary
-                }
-                Text(
-                    text = "${remainingSeconds}s",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = timerColor,
-                    fontWeight = FontWeight.Bold
-                )
             } else {
                 Text(
                     text = "${session.correctCount}/${session.answeredCount} correct",
@@ -655,8 +876,7 @@ private fun PracticeScoreCard(
     answered: Int,
     total: Int,
     bookmarked: Int,
-    isTimedPracticeMode: Boolean,
-    secondsPerQuestion: Int
+    isRevisionMode: Boolean
 ) {
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -668,8 +888,8 @@ private fun PracticeScoreCard(
         ) {
             Text("$correct/$answered correct so far", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text(
-                if (isTimedPracticeMode) {
-                    "Speed round: $secondsPerQuestion seconds per question. Bookmarked: $bookmarked | Total questions: $total"
+                if (isRevisionMode) {
+                    "Revision mode loads your previously wrong or bookmarked questions. Bookmarked: $bookmarked | Total questions: $total"
                 } else {
                     "Free navigation is enabled. Bookmarked: $bookmarked | Total questions: $total"
                 },
@@ -759,7 +979,7 @@ private fun QuestionCard(
 ) {
     val question = session.currentQuestion
     val progress = session.currentProgress
-    val isPracticeLocked = (session.mode == QuizMode.PRACTICE || session.mode == QuizMode.TIMED_PRACTICE) && progress.isLocked
+    val isPracticeLocked = (session.mode == QuizMode.PRACTICE || session.mode == QuizMode.REVISION) && progress.isLocked
 
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -1186,6 +1406,7 @@ private fun RecentHistoryCard(item: QuizHistoryItem) {
 @Composable
 private fun QuestionSetCard(
     questionSet: QuestionSet,
+    revisionCount: Int,
     onStartQuiz: (QuestionSet, QuizMode) -> Unit
 ) {
     Card(
@@ -1213,7 +1434,7 @@ private fun QuestionSetCard(
                 text = if (questionSet.isPremium) {
                     "Premium sets are visible now so the upgrade path feels native later."
                 } else {
-                    "Choose a mode: learn with instant feedback or simulate a real CBT."
+                    "Choose a mode: learn with instant feedback, simulate a CBT, or revisit mistakes."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1233,20 +1454,21 @@ private fun QuestionSetCard(
                     OutlinedButton(
                         onClick = { onStartQuiz(questionSet, QuizMode.EXAM) },
                         modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Exam")
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = { onStartQuiz(questionSet, QuizMode.TIMED_PRACTICE) },
-                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Timed Practice")
+                        Text("Exam")
                     }
+                }
+                OutlinedButton(
+                    onClick = { onStartQuiz(questionSet, QuizMode.REVISION) },
+                    enabled = revisionCount > 0,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (revisionCount > 0) "Revision ($revisionCount)" else "Revision")
                 }
             }
         }
     }
+}
 
 @Composable
 private fun EmptyStateCard(

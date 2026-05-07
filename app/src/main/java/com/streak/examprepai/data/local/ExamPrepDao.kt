@@ -24,4 +24,22 @@ interface ExamPrepDao {
 
     @Upsert
     fun upsertQuizHistory(entity: QuizHistoryEntity)
+
+    @Query("SELECT * FROM saved_session WHERE id = 0")
+    fun getSavedSession(): SavedSessionEntity?
+
+    @Upsert
+    fun upsertSavedSession(entity: SavedSessionEntity)
+
+    @Query("DELETE FROM saved_session WHERE id = 0")
+    fun clearSavedSession()
+
+    @Query("SELECT * FROM question_insight WHERE questionId = :questionId")
+    fun getQuestionInsight(questionId: String): QuestionInsightEntity?
+
+    @Upsert
+    fun upsertQuestionInsight(entity: QuestionInsightEntity)
+
+    @Query("SELECT * FROM question_insight WHERE setId = :setId AND (wrongCount > 0 OR isBookmarked = 1)")
+    fun getRevisionInsightsForSet(setId: String): List<QuestionInsightEntity>
 }
