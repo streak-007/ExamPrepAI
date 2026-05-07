@@ -1,5 +1,6 @@
 package com.streak.examprepai.ui
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -44,6 +46,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -51,6 +54,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -1028,10 +1034,22 @@ private fun BookmarkRibbonButton(
 ) {
     val fillColor = if (selected) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceVariant
     val strokeColor = if (selected) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
+    val scale by animateFloatAsState(if (selected) 1.2f else 1.0f, label = "bookmark_scale")
+    val stateDescription = if (selected) "Saved to bookmarks" else "Not saved"
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.clickable(onClick = onClick)
+        modifier = Modifier
+            .semantics {
+                this.stateDescription = stateDescription
+            }
+            .clickable(
+                onClickLabel = if (selected) "Remove bookmark" else "Add bookmark",
+                role = Role.Button,
+                onClick = onClick
+            )
+            .graphicsLayer(scaleX = scale, scaleY = scale)
     ) {
         Canvas(modifier = Modifier.size(width = 24.dp, height = 30.dp)) {
             val ribbonPath = Path().apply {
@@ -1526,7 +1544,11 @@ private fun OptionCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(containerColor)
-            .clickable(onClick = onClick)
+            .selectable(
+                selected = selected,
+                onClick = onClick,
+                role = Role.RadioButton
+            )
             .padding(16.dp)
     ) {
         Text(text = text, style = MaterialTheme.typography.bodyLarge, color = contentColor)
