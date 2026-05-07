@@ -1,0 +1,3 @@
+## 2025-05-14 - [Enhanced Bookmark & Option Accessibility]
+**Learning:** In Jetpack Compose, using `Modifier.clickable` with `onClickLabel` and `role` provides much better context for screen readers than a raw clickable. For selection groups like multiple-choice options, `Modifier.selectable` with `Role.RadioButton` is essential for proper semantic grouping and state communication. Adding a subtle `animateFloatAsState` scale transition provides immediate visual confirmation of state changes (like bookmarking) which adds a "delight" factor.
+**Action:** Always prefer `Modifier.selectable` for radio-like behaviors and ensure `onClickLabel` is descriptive for stateful toggles. Add micro-animations for state transitions to improve perceived responsiveness.
