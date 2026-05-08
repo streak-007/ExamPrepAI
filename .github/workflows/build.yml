@@ -1,4 +1,4 @@
-name: Build APK
+name: Build & Distribute APK
 
 on:
   push:
@@ -25,13 +25,16 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Grant execute permission to gradlew
-        run: chmod +x ./gradlew    
+        run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug -x test -x lint
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Upload to Firebase App Distribution
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
         with:
-          name: debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          appId: ${{ secrets.FIREBASE_APP_ID }}
+          token: ${{ secrets.FIREBASE_TOKEN }}
+          groups: testers
+          releaseNotes: "Branch: ${{ github.ref_name }} | Commit: ${{ github.sha }}"
+          file: app/build/outputs/apk/debug/app-debug.apk
