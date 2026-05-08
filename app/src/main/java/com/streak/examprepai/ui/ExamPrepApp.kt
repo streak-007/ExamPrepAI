@@ -1,9 +1,12 @@
 package com.streak.examprepai.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +47,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -1031,7 +1037,11 @@ private fun BookmarkRibbonButton(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.clickable(onClick = onClick)
+        modifier = Modifier.clickable(
+            onClick = onClick,
+            role = Role.Button,
+            onClickLabel = if (selected) "Remove bookmark" else "Add bookmark"
+        )
     ) {
         Canvas(modifier = Modifier.size(width = 24.dp, height = 30.dp)) {
             val ribbonPath = Path().apply {
@@ -1509,24 +1519,46 @@ private fun OptionCard(
     isWrongSelection: Boolean,
     onClick: () -> Unit
 ) {
-    val containerColor = when {
+    val targetContainerColor = when {
         isCorrect -> MaterialTheme.colorScheme.secondaryContainer
         isWrongSelection -> MaterialTheme.colorScheme.errorContainer
         selected -> MaterialTheme.colorScheme.primaryContainer
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
+
+    val containerColor by animateColorAsState(
+        targetValue = targetContainerColor,
+        animationSpec = tween(durationMillis = 300),
+        label = "optionBackgroundColor"
+    )
+
     val contentColor = when {
         isCorrect -> MaterialTheme.colorScheme.onSecondaryContainer
         isWrongSelection -> MaterialTheme.colorScheme.onErrorContainer
         selected -> MaterialTheme.colorScheme.onPrimaryContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+
+    val stateDescription = when {
+        isCorrect -> "Correct"
+        isWrongSelection -> "Incorrect"
+        selected -> "Selected"
+        else -> "Not selected"
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(containerColor)
-            .clickable(onClick = onClick)
+            .selectable(
+                selected = selected,
+                onClick = onClick,
+                role = Role.RadioButton
+            )
+            .semantics {
+                this.stateDescription = stateDescription
+            }
             .padding(16.dp)
     ) {
         Text(text = text, style = MaterialTheme.typography.bodyLarge, color = contentColor)
