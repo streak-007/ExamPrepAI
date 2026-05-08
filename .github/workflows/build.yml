@@ -39,8 +39,9 @@ jobs:
         run: |
           echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > service-account.json
           export GOOGLE_APPLICATION_CREDENTIALS=service-account.json
-          firebase appdistribution:distribute app/build/outputs/apk/debug/app-debug.apk \
-            --app ${{ secrets.FIREBASE_APP_ID }} \
+          firebase appdistribution:distribute \
+            "app/build/outputs/apk/debug/app-debug.apk" \
+            --app "${{ secrets.FIREBASE_APP_ID }}" \
             --groups "testers" \
-            --release-notes "Branch: ${{ github.ref_name }} | Commit: ${{ github.sha }}"
+            --release-notes "Branch ${{ github.ref_name }}"
           rm service-account.json
