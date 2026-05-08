@@ -30,11 +30,14 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug -x test -x lint
 
+      - name: Create Firebase Service Account File
+        run: echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}" > /tmp/firebase-key.json
+
       - name: Upload to Firebase App Distribution
         uses: wzieba/Firebase-Distribution-Github-Action@v1
         with:
           appId: ${{ secrets.FIREBASE_APP_ID }}
-          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          serviceCredentialsFile: /tmp/firebase-key.json
           groups: testers
           releaseNotes: "Branch: ${{ github.ref_name }} | Commit: ${{ github.sha }}"
           file: app/build/outputs/apk/debug/app-debug.apk
