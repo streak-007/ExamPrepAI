@@ -30,17 +30,11 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug -x test -x lint
 
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
-
       - name: Upload to Firebase App Distribution
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.FIREBASE_SERVICE_CREDENTIALS }}
-        run: |
-          echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > service-account.json
-          cat service-account.json | python3 -c "import sys,json; json.load(sys.stdin); print('JSON is valid')"
-          GOOGLE_APPLICATION_CREDENTIALS=service-account.json firebase appdistribution:distribute \
-            "app/build/outputs/apk/debug/app-debug.apk" \
-            --app "${{ secrets.FIREBASE_APP_ID }}" \
-            --groups "testers"
-          rm service-account.json
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ secrets.FIREBASE_APP_ID }}
+          token: ${{ secrets.FIREBASE_TOKEN }}
+          groups: testers
+          releaseNotes: "Branch: ${{ github.ref_name }} | Commit: ${{ github.sha }}"
+          file: app/build/outputs/apk/debug/app-debug.apk
